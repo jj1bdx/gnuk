@@ -1,3 +1,103 @@
+2016-05-19  Niibe Yutaka  <gniibe@fsij.org>
+
+	* chopstx: Update to 0.11.
+
+	* src/gnuk.h (LED_START_COMMAND, LED_FINISH_COMMAND): Change the
+	values for a case both flags will be handled.
+
+2016-05-18  Niibe Yutaka  <gniibe@fsij.org>
+
+	* src/gnuk.ld.in: Tweak thread size.
+	* src/main.c (main): Use chopstx_setpriority.
+	* src/usb-icc.c (ccid_init): Use new eventflag API.
+
+	* regnual/regnual.c (nvic_enable_intr): New.
+	(main): Call nvic_enable_intr.
+
+	* chopstx: Update.
+
+2016-05-16  Niibe Yutaka  <gniibe@fsij.org>
+
+	* regnual/regnual.c (usb_cb_rx_ready, usb_cb_tx_done)
+	(usb_cb_device_reset): Follow the change of USB API.
+
+	* chopstx: Update.
+	* src/sys.c: Update from Chopstx.
+
+2016-05-13  Niibe Yutaka  <gniibe@fsij.org>
+
+	* src/neug.c (rng): Call chopstx_claim_irq before adc_start.
+	Remove call of chopstx_release_irq.
+
+2016-05-12  Niibe Yutaka  <gniibe@fsij.org>
+
+	* chopstx: Update.
+	* src/sys.c: Update from Chopstx.
+	* src/usb_lld.h: Likewise.
+	* src/usb_stm32f103.c: Likewise.
+
+	* src/usb_ctrl.c (usb_intr): Follow the change of USB API.
+	(usb_cb_rx_ready, usb_cb_tx_done): Likewise.
+
+	* src/adc.h: Remove unused declarations.
+
+2016-03-08  Niibe Yutaka  <gniibe@fsij.org>
+
+	* tool/gnuk_token.py (gnuk_token.__init__, regnual.__init__):
+	Don't call setConfiguration method.
+
+	* src/usb_lld.h (usb_cb_ctrl_write_finish): Change the API of
+	callback, which possibly needs INDEX, VALUE, and LEN parameters.
+	(usb_lld_set_data_to_recv): Fix the type of P.
+	(USB_DEVICE_DESCRIPTOR_TYPE, USB_CONFIGURATION_DESCRIPTOR_TYPE)
+	(USB_STRING_DESCRIPTOR_TYPE, USB_INTERFACE_DESCRIPTOR_TYPE)
+	(USB_ENDPOINT_DESCRIPTOR_TYPE): Remove, as we have the enumeration
+	values for same things.
+
+	* src/usb_stm32f103.c (handle_in0): Follow the change.
+	* src/usb_ctrl.c (usb_cb_ctrl_write_finish): Likewise.
+
+	* src/usb_desc.c (usb_cb_get_descriptor): Use HID_INTERFACE.
+	(device_desc, config_desc, string_descriptors)
+	(usb_cb_get_descriptor): Use the enumeration types.
+	* src/configure: Use the enumeration types.
+
+	* regnual/regnual.c: Follow the change of usb_lld.h.
+
+2016-02-09  Niibe Yutaka  <gniibe@fsij.org>
+
+	* src/openpgp.c (cmd_verify): Support VERIFY reset, which is
+	described in the specification V2.2 and V3.1.
+
+	* polarssl/library/bignum.c (mpi_exp_mod): Fix to our local
+	change.  Thanks to Aidan Thornton for the failure test case.
+
+	Fix of mpi_div_mpi from upstream.
+	* polarssl/library/bignum.c (int_clz, int_div_int): New.
+	(mpi_div_mpi): Use int_div_int.
+
+2016-02-09  Niibe Yutaka  <gniibe@fsij.org>
+
+	* src/openpgp.c (s2k): Include the unique ID of MCU into the
+	computation of S2K function.
+
+2016-02-08  Niibe Yutaka  <gniibe@fsij.org>
+
+	* src/modp256r1.c (modp256r1_add, modp256r1_sub): Keep the result
+	less than P256R1.
+	(modp256r1_reduce): Fix wrong calculation.
+	* src/modp256k1.c (modp256k1_add, modp256k1_sub): Likewise.
+	Thanks to Aidan Thornton.
+
+2016-02-05  Niibe Yutaka  <gniibe@fsij.org>
+
+	* src/configure: Add submodule check suggested by Elliott
+	Mitchell.
+
+2015-11-30  perillamint  <perillamint@gentoo.moe>
+
+	* src/openpgp.c (card_thread): Fix offset of bConfirmPIN.
+
 2015-09-18  Niibe Yutaka  <gniibe@fsij.org>
 
 	* VERSION: 1.1.9.

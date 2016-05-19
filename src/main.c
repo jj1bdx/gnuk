@@ -1,7 +1,7 @@
 /*
  * main.c - main routine of Gnuk
  *
- * Copyright (C) 2010, 2011, 2012, 2013, 2015
+ * Copyright (C) 2010, 2011, 2012, 2013, 2015, 2016
  *               Free Software Initiative of Japan
  * Author: NIIBE Yutaka <gniibe@fsij.org>
  *
@@ -37,85 +37,10 @@
 #include "random.h"
 #include "stm32f103.h"
 
-#ifdef DEBUG
-#include "debug.h"
-
-struct stdout stdout;
-
-static void
-stdout_init (void)
-{
-  chopstx_mutex_init (&stdout.m);
-  chopstx_mutex_init (&stdout.m_dev);
-  chopstx_cond_init (&stdout.cond_dev);
-  stdout.connected = 0;
-}
-
-void
-_write (const char *s, int len)
-{
-  int packet_len;
-
-  if (len == 0)
-    return;
-
-  chopstx_mutex_lock (&stdout.m);
-
-  chopstx_mutex_lock (&stdout.m_dev);
-  if (!stdout.connected)
-    chopstx_cond_wait (&stdout.cond_dev, &stdout.m_dev);
-  chopstx_mutex_unlock (&stdout.m_dev);
-
-  do
-    {
-      packet_len =
-	(len < VIRTUAL_COM_PORT_DATA_SIZE) ? len : VIRTUAL_COM_PORT_DATA_SIZE;
-
-      chopstx_mutex_lock (&stdout.m_dev);
-      usb_lld_write (ENDP3, s, packet_len);
-      chopstx_cond_wait (&stdout.cond_dev, &stdout.m_dev);
-      chopstx_mutex_unlock (&stdout.m_dev);
-
-      s += packet_len;
-      len -= packet_len;
-    }
-  /* Send a Zero-Length-Packet if the last packet is full size.  */
-  while (len != 0 || packet_len == VIRTUAL_COM_PORT_DATA_SIZE);
-
-  chopstx_mutex_unlock (&stdout.m);
-}
-
-void
-EP3_IN_Callback (void)
-{
-  chopstx_mutex_lock (&stdout.m_dev);
-  chopstx_cond_signal (&stdout.cond_dev);
-  chopstx_mutex_unlock (&stdout.m_dev);
-}
-
-void
-EP5_OUT_Callback (void)
-{
-  chopstx_mutex_lock (&stdout.m_dev);
-  usb_lld_rx_enable (ENDP5);
-  chopstx_mutex_unlock (&stdout.m_dev);
-}
-#else
-void
-_write (const char *s, int size)
-{
-  (void)s;
-  (void)size;
-}
-#endif
-
-extern void *USBthread (void *arg);
 
 /*
  * main thread does 1-bit LED display output
  */
-#define MAIN_TIMEOUT_INTERVAL	(5000*1000)
-
 #define LED_TIMEOUT_INTERVAL	(75*1000)
 #define LED_TIMEOUT_ZERO	(25*1000)
 #define LED_TIMEOUT_ONE		(100*1000)
@@ -195,59 +120,38 @@ static void display_fatal_code (void)
 
 static uint8_t led_inverted;
 
-static eventmask_t emit_led (int on_time, int off_time)
+static void emit_led (int on_time, int off_time)
 {
-  eventmask_t m;
-
   set_led (!led_inverted);
-  m = eventflag_wait_timeout (&led_event, on_time);
+  chopstx_usec_wait (on_time);
   set_led (led_inverted);
-  if (m) return m;
-  if ((m = eventflag_wait_timeout (&led_event, off_time)))
-    return m;
-  return 0;
+  chopstx_usec_wait (off_time);
 }
 
-static eventmask_t display_status_code (void)
+static void display_status_code (void)
 {
-  eventmask_t m;
   enum icc_state icc_state = *icc_state_p;
 
   if (icc_state == ICC_STATE_START)
-    return emit_led (LED_TIMEOUT_ONE, LED_TIMEOUT_STOP);
+    emit_led (LED_TIMEOUT_ONE, LED_TIMEOUT_STOP);
   else
-    /* OpenPGP card thread  running */
+    /* OpenPGP card thread is running */
     {
-      if ((m = emit_led ((auth_status & AC_ADMIN_AUTHORIZED)?
-			  LED_TIMEOUT_ONE : LED_TIMEOUT_ZERO,
-			  LED_TIMEOUT_INTERVAL)))
-	return m;
-      if ((m = emit_led ((auth_status & AC_OTHER_AUTHORIZED)?
-			  LED_TIMEOUT_ONE : LED_TIMEOUT_ZERO,
-			  LED_TIMEOUT_INTERVAL)))
-	return m;
-      if ((m = emit_led ((auth_status & AC_PSO_CDS_AUTHORIZED)?
-			  LED_TIMEOUT_ONE : LED_TIMEOUT_ZERO,
-			  LED_TIMEOUT_INTERVAL)))
-	return m;
+      emit_led ((auth_status & AC_ADMIN_AUTHORIZED)?
+		LED_TIMEOUT_ONE : LED_TIMEOUT_ZERO, LED_TIMEOUT_INTERVAL);
+      emit_led ((auth_status & AC_OTHER_AUTHORIZED)?
+		LED_TIMEOUT_ONE : LED_TIMEOUT_ZERO, LED_TIMEOUT_INTERVAL);
+      emit_led ((auth_status & AC_PSO_CDS_AUTHORIZED)?
+		LED_TIMEOUT_ONE : LED_TIMEOUT_ZERO, LED_TIMEOUT_INTERVAL);
 
       if (icc_state == ICC_STATE_WAIT)
-	{
-	  if ((m = eventflag_wait_timeout (&led_event, LED_TIMEOUT_STOP * 2)))
-	    return m;
-	}
+	chopstx_usec_wait (LED_TIMEOUT_STOP * 2);
       else
 	{
-	  if ((m = eventflag_wait_timeout (&led_event, LED_TIMEOUT_INTERVAL)))
-	    return m;
-
-	  if ((m = emit_led (icc_state == ICC_STATE_RECEIVE?
-			      LED_TIMEOUT_ONE : LED_TIMEOUT_ZERO,
-			      LED_TIMEOUT_STOP)))
-	    return m;
+	  chopstx_usec_wait (LED_TIMEOUT_INTERVAL);
+	  emit_led (icc_state == ICC_STATE_RECEIVE?
+		    LED_TIMEOUT_ONE : LED_TIMEOUT_ZERO, LED_TIMEOUT_STOP);
 	}
-
-      return 0;
     }
 }
 
@@ -275,19 +179,13 @@ calculate_regnual_entry_address (const uint8_t *addr)
 }
 
 extern uint8_t __process1_stack_base__, __process1_stack_size__;
-extern uint8_t __process4_stack_base__, __process4_stack_size__;
-
 const uint32_t __stackaddr_ccid = (uint32_t)&__process1_stack_base__;
 const size_t __stacksize_ccid = (size_t)&__process1_stack_size__;
 
-const uint32_t __stackaddr_usb = (uint32_t)&__process4_stack_base__;
-const size_t __stacksize_usb = (size_t)&__process4_stack_size__;
-
 #define PRIO_CCID 3
-#define PRIO_USB  4
 #define PRIO_MAIN 5
 
-extern void *usb_intr (void *arg);
+extern void *ccid_thread (void *arg);
 
 static void gnuk_malloc_init (void);
 
@@ -296,16 +194,11 @@ extern uint32_t bDeviceState;
 
 /*
  * Entry point.
- *
- * NOTE: the main function is already a thread in the system on entry.
- *       See the hwinit1_common function.
  */
 int
 main (int argc, char *argv[])
 {
-  unsigned int count = 0;
   uint32_t entry;
-  chopstx_t usb_thd;
   chopstx_t ccid_thd;
 
   (void)argc;
@@ -318,7 +211,7 @@ main (int argc, char *argv[])
 
   adc_init ();
 
-  eventflag_init (&led_event, chopstx_main);
+  eventflag_init (&led_event);
 
   random_init ();
 
@@ -327,7 +220,7 @@ main (int argc, char *argv[])
 #endif
 
   ccid_thd = chopstx_create (PRIO_CCID, __stackaddr_ccid, __stacksize_ccid,
-			     USBthread, NULL);
+			     ccid_thread, NULL);
 
 #ifdef PINPAD_CIR_SUPPORT
   cir_init ();
@@ -336,10 +229,7 @@ main (int argc, char *argv[])
   msc_init ();
 #endif
 
-  usb_thd = chopstx_create (PRIO_USB, __stackaddr_usb, __stacksize_usb,
-			    usb_intr, NULL);
-
-  chopstx_main_init (PRIO_MAIN);
+  chopstx_setpriority (PRIO_MAIN);
 
   while (1)
     {
@@ -353,56 +243,37 @@ main (int argc, char *argv[])
     {
       eventmask_t m;
 
-      m = eventflag_wait_timeout (&led_event, MAIN_TIMEOUT_INTERVAL);
-    got_it:
-      count++;
+      m = eventflag_wait (&led_event);
       switch (m)
 	{
 	case LED_ONESHOT:
-	  if ((m = emit_led (100*1000, MAIN_TIMEOUT_INTERVAL))) goto got_it;
+	  emit_led (100*1000, LED_TIMEOUT_STOP);
 	  break;
 	case LED_TWOSHOTS:
-	  if ((m = emit_led (50*1000, 50*1000))) goto got_it;
-	  if ((m = emit_led (50*1000, MAIN_TIMEOUT_INTERVAL))) goto got_it;
+	  emit_led (50*1000, 50*1000);
+	  emit_led (50*1000, LED_TIMEOUT_STOP);
 	  break;
 	case LED_SHOW_STATUS:
-	  if ((count & 0x07) != 0) continue; /* Display once for eight times */
-	  if ((m = display_status_code ())) goto got_it;
+	  display_status_code ();
 	  break;
 	case LED_START_COMMAND:
 	  set_led (1);
 	  led_inverted = 1;
 	  break;
 	case LED_FINISH_COMMAND:
-	  m = eventflag_wait_timeout (&led_event, LED_TIMEOUT_STOP);
+	  chopstx_usec_wait (LED_TIMEOUT_STOP);
 	  led_inverted = 0;
 	  set_led (0);
-	  if (m)
-	    goto got_it;
 	  break;
 	case LED_FATAL:
 	  display_fatal_code ();
 	  break;
-	case LED_USB_RESET:
-	  ccid_usb_reset ();
-	  break;
 	case LED_GNUK_EXEC:
 	  goto exec;
 	default:
-	  if ((m = emit_led (LED_TIMEOUT_ZERO, LED_TIMEOUT_STOP)))
-	    goto got_it;
+	  emit_led (LED_TIMEOUT_ZERO, LED_TIMEOUT_STOP);
 	  break;
 	}
-
-#ifdef DEBUG_MORE
-      if (stdout.connected && (count % 10) == 0)
-	{
-	  DEBUG_SHORT (count / 10);
-	  _write ("\r\nThis is Gnuk on STM32F103.\r\n"
-		  "Testing USB driver.\n\n"
-		  "Hello world\r\n\r\n", 30+21+15);
-	}
-#endif
     }
 
  exec:
@@ -413,9 +284,6 @@ main (int argc, char *argv[])
 
   /* Finish application.  */
   chopstx_join (ccid_thd, NULL);
-
-  chopstx_cancel (usb_thd);
-  chopstx_join (usb_thd, NULL);
 
   /* Set vector */
   SCB->VTOR = (uint32_t)&_regnual_start;
@@ -458,6 +326,8 @@ main (int argc, char *argv[])
 void
 fatal (uint8_t code)
 {
+  extern void _write (const char *s, int len);
+
   fatal_code = code;
   eventflag_signal (&led_event, LED_FATAL);
   _write ("fatal\r\n", 7);

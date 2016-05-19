@@ -1,7 +1,7 @@
 /*
  * openpgp.c -- OpenPGP card protocol support
  *
- * Copyright (C) 2010, 2011, 2012, 2013, 2014, 2015
+ * Copyright (C) 2010, 2011, 2012, 2013, 2014, 2015, 2016
  *               Free Software Initiative of Japan
  * Author: NIIBE Yutaka <gniibe@fsij.org>
  *
@@ -138,6 +138,7 @@ static void
 cmd_verify (void)
 {
   int len;
+  uint8_t p1 = P1 (apdu);
   uint8_t p2 = P2 (apdu);
   int r;
   const uint8_t *pw;
@@ -149,22 +150,36 @@ cmd_verify (void)
   pw = apdu.cmd_apdu_data;
 
   if (len == 0)
-    {				/* This is to examine status.  */
-      if (p2 == 0x81)
-	r = ac_check_status (AC_PSO_CDS_AUTHORIZED);
-      else if (p2 == 0x82)
-	r = ac_check_status (AC_OTHER_AUTHORIZED);
-      else
-	r = ac_check_status (AC_ADMIN_AUTHORIZED);
+    {
+      if (p1 == 0)
+	{			/* This is to examine status.  */
+	  if (p2 == 0x81)
+	    r = ac_check_status (AC_PSO_CDS_AUTHORIZED);
+	  else if (p2 == 0x82)
+	    r = ac_check_status (AC_OTHER_AUTHORIZED);
+	  else
+	    r = ac_check_status (AC_ADMIN_AUTHORIZED);
 
-      if (r)
-	GPG_SUCCESS ();	/* If authentication done already, return success.  */
-      else
-	{		 /* If not, return retry counter, encoded.  */
-	  r = gpg_pw_get_retry_counter (p2);
-	  set_res_sw (0x63, 0xc0 | (r&0x0f));
+	  if (r)
+	    GPG_SUCCESS ();	/* If authentication done already, return success.  */
+	  else
+	    {		 /* If not, return retry counter, encoded.  */
+	      r = gpg_pw_get_retry_counter (p2);
+	      set_res_sw (0x63, 0xc0 | (r&0x0f));
+	    }
 	}
-
+      else if (p1 == 0xff)
+	{			/* Reset the status.  */
+	  if (p2 == 0x81)
+	    ac_reset_pso_cds ();
+	  else if (p2 == 0x82)
+	    ac_reset_other ();
+	  else
+	    ac_reset_admin ();
+	  GPG_SUCCESS ();
+	}
+      else
+	GPG_BAD_P1_P2 ();
       return;
     }
 
@@ -437,8 +452,11 @@ s2k (const unsigned char *salt, size_t slen,
 {
   sha256_context ctx;
   size_t count = S2KCOUNT;
+  const uint8_t *unique = unique_device_id ();
 
   sha256_start (&ctx);
+
+  sha256_update (&ctx, unique, 12);
 
   while (count > slen + ilen)
     {
@@ -1407,7 +1425,7 @@ card_thread (chopstx_t thd, struct eventflag *ccid_comm)
       else if (m == EV_MODIFY_CMD_AVAILABLE)
 	{
 #if defined(PINPAD_SUPPORT)
-	  uint8_t bConfirmPIN = apdu.cmd_apdu_data[5];
+	  uint8_t bConfirmPIN = apdu.cmd_apdu_data[0];
 	  uint8_t *p = apdu.cmd_apdu_data;
 
 	  if (INS (apdu) != INS_CHANGE_REFERENCE_DATA

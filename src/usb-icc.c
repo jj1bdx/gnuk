@@ -1,7 +1,7 @@
 /*
  * usb-icc.c -- USB CCID protocol handling
  *
- * Copyright (C) 2010, 2011, 2012, 2013, 2014, 2015
+ * Copyright (C) 2010, 2011, 2012, 2013, 2014, 2015, 2016
  *               Free Software Initiative of Japan
  * Author: NIIBE Yutaka <gniibe@fsij.org>
  *
@@ -29,8 +29,14 @@
 
 #include "config.h"
 
+#ifdef DEBUG
+#include "debug.h"
+struct stdout stdout;
+#endif
+
 #include "gnuk.h"
 #include "usb_lld.h"
+#include "usb_conf.h"
 
 /*
  * USB buffer size of USB-CCID driver
@@ -248,7 +254,7 @@ static void ccid_reset (struct ccid *c)
 }
 
 static void ccid_init (struct ccid *c, struct ep_in *epi, struct ep_out *epo,
-		       struct apdu *a, chopstx_t thd)
+		       struct apdu *a)
 {
   icc_state_p = &c->icc_state;
 
@@ -260,9 +266,7 @@ static void ccid_init (struct ccid *c, struct ep_in *epi, struct ep_out *epo,
   memset (&c->icc_header, 0, sizeof (struct icc_header));
   c->sw1sw2[0] = 0x90;
   c->sw1sw2[1] = 0x00;
-  eventflag_init (&c->ccid_comm, thd);
   c->application = 0;
-  eventflag_init (&c->openpgp_comm, 0);
   c->epi = epi;
   c->epo = epo;
   c->a = a;
@@ -353,7 +357,7 @@ static void get_sw1sw2 (struct ep_in *epi, size_t len)
 /*
  * Tx done callback
  */
-void
+static void
 EP1_IN_Callback (void)
 {
   struct ep_in *epi = &endpoint_in;
@@ -630,7 +634,7 @@ icc_prepare_receive (struct ccid *c)
  * Rx ready callback
  */
 
-void
+static void
 EP1_OUT_Callback (void)
 {
   struct ep_out *epo = &endpoint_out;
@@ -670,6 +674,46 @@ EP1_OUT_Callback (void)
     epo->notify (epo);
 }
 
+
+extern void EP6_IN_Callback (void);
+
+void
+usb_cb_rx_ready (uint8_t ep_num)
+{
+  if (ep_num == ENDP1)
+    EP1_OUT_Callback ();
+#ifdef DEBUG
+  else if (ep_num == ENDP5)
+    {
+      chopstx_mutex_lock (&stdout.m_dev);
+      usb_lld_rx_enable (ep_num);
+      chopstx_mutex_unlock (&stdout.m_dev);
+    }
+#endif
+}
+
+void
+usb_cb_tx_done (uint8_t ep_num)
+{
+  if (ep_num == ENDP1)
+    EP1_IN_Callback ();
+  else if (ep_num == ENDP2)
+    {
+      /* INTERRUPT Transfer done */
+    }
+#ifdef DEBUG
+  else if (ep_num == ENDP3)
+    {
+      chopstx_mutex_lock (&stdout.m_dev);
+      chopstx_cond_signal (&stdout.cond_dev);
+      chopstx_mutex_unlock (&stdout.m_dev);
+    }
+#endif
+#ifdef PINPAD_SUPPORT
+  else if (ep_num == ENDP6)
+    EP6_IN_Callback ();
+#endif
+}
 
 /*
  * ATR (Answer To Reset) string
@@ -803,7 +847,6 @@ icc_send_status (struct ccid *c)
   c->epi->tx_done = 1;
   usb_lld_write (c->epi->ep_num, icc_reply, ICC_MSG_HEADER_SIZE);
 
-  led_blink (LED_SHOW_STATUS);
 #ifdef DEBUG_MORE
   DEBUG_INFO ("St\r\n");
 #endif
@@ -1285,26 +1328,17 @@ icc_handle_timeout (struct ccid *c)
     {
     case ICC_STATE_EXECUTE:
       icc_send_data_block_time_extension (c);
-      led_blink (LED_ONESHOT);
       break;
     default:
       break;
     }
 
+  led_blink (LED_SHOW_STATUS);
   return next_state;
 }
 
 static struct ccid ccid;
 enum icc_state *icc_state_p = &ccid.icc_state;
-
-/*
- * Another Tx done callback
- */
-void
-EP2_IN_Callback (void)
-{
-}
-
 
 void
 ccid_card_change_signal (int how)
@@ -1329,40 +1363,52 @@ ccid_usb_reset (void)
 
 #define GPG_THREAD_TERMINATED 0xffff
 
-static void *ccid_thread (chopstx_t) __attribute__ ((noinline));
-
-void * __attribute__ ((naked))
-USBthread (void *arg)
-{
-  chopstx_t thd;
-  (void)arg;
-
-  asm ("mov	%0, sp" : "=r" (thd));
-  return ccid_thread (thd);
-}
-
 #define NOTIFY_SLOT_CHANGE 0x50
 
-static void * __attribute__ ((noinline))
-ccid_thread (chopstx_t thd)
+#define INTR_REQ_USB 20
+
+void *
+ccid_thread (void *arg)
 {
+  chopstx_intr_t interrupt;
+  uint32_t timeout;
+
   struct ep_in *epi = &endpoint_in;
   struct ep_out *epo = &endpoint_out;
   struct ccid *c = &ccid;
   struct apdu *a = &apdu;
 
+  (void)arg;
+
+  eventflag_init (&ccid.ccid_comm);
+  eventflag_init (&ccid.openpgp_comm);
+
+  usb_lld_init (USB_INITIAL_FEATURE);
+  chopstx_claim_irq (&interrupt, INTR_REQ_USB);
+  usb_interrupt_handler ();	/* For old SYS < 3.0 */
+
  reset:
   epi_init (epi, ENDP1, notify_tx, c);
   epo_init (epo, ENDP1, notify_icc, c);
   apdu_init (a);
-  ccid_init (c, epi, epo, a, thd);
+  ccid_init (c, epi, epo, a);
 
   icc_prepare_receive (c);
   while (1)
     {
       eventmask_t m;
+      chopstx_poll_cond_t poll_desc;
 
-      m = eventflag_wait_timeout (&c->ccid_comm, USB_ICC_TIMEOUT);
+      eventflag_prepare_poll (&c->ccid_comm, &poll_desc);
+      chopstx_poll (&timeout, 2, &interrupt, &poll_desc);
+      if (interrupt.ready)
+	{
+	  usb_interrupt_handler ();
+	  continue;
+	}
+
+      timeout = USB_ICC_TIMEOUT;
+      m = eventflag_get (&c->ccid_comm);
 
       if (m == EV_USB_RESET)
 	{
@@ -1467,3 +1513,57 @@ ccid_thread (chopstx_t thd)
 
   return NULL;
 }
+
+
+#ifdef DEBUG
+static void
+stdout_init (void)
+{
+  chopstx_mutex_init (&stdout.m);
+  chopstx_mutex_init (&stdout.m_dev);
+  chopstx_cond_init (&stdout.cond_dev);
+  stdout.connected = 0;
+}
+
+void
+_write (const char *s, int len)
+{
+  int packet_len;
+
+  if (len == 0)
+    return;
+
+  chopstx_mutex_lock (&stdout.m);
+
+  chopstx_mutex_lock (&stdout.m_dev);
+  if (!stdout.connected)
+    chopstx_cond_wait (&stdout.cond_dev, &stdout.m_dev);
+  chopstx_mutex_unlock (&stdout.m_dev);
+
+  do
+    {
+      packet_len =
+	(len < VIRTUAL_COM_PORT_DATA_SIZE) ? len : VIRTUAL_COM_PORT_DATA_SIZE;
+
+      chopstx_mutex_lock (&stdout.m_dev);
+      usb_lld_write (ENDP3, s, packet_len);
+      chopstx_cond_wait (&stdout.cond_dev, &stdout.m_dev);
+      chopstx_mutex_unlock (&stdout.m_dev);
+
+      s += packet_len;
+      len -= packet_len;
+    }
+  /* Send a Zero-Length-Packet if the last packet is full size.  */
+  while (len != 0 || packet_len == VIRTUAL_COM_PORT_DATA_SIZE);
+
+  chopstx_mutex_unlock (&stdout.m);
+}
+
+#else
+void
+_write (const char *s, int size)
+{
+  (void)s;
+  (void)size;
+}
+#endif
