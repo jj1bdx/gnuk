@@ -1,5 +1,5 @@
 /*
- * usb-icc.c -- USB CCID protocol handling
+ * usb-ccid.c -- USB CCID protocol handling
  *
  * Copyright (C) 2010, 2011, 2012, 2013, 2014, 2015, 2016
  *               Free Software Initiative of Japan
@@ -847,6 +847,7 @@ icc_send_status (struct ccid *c)
   c->epi->tx_done = 1;
   usb_lld_write (c->epi->ep_num, icc_reply, ICC_MSG_HEADER_SIZE);
 
+  led_blink (LED_SHOW_STATUS);
 #ifdef DEBUG_MORE
   DEBUG_INFO ("St\r\n");
 #endif
@@ -1333,7 +1334,7 @@ icc_handle_timeout (struct ccid *c)
       break;
     }
 
-  led_blink (LED_SHOW_STATUS);
+  led_blink (LED_ONESHOT);
   return next_state;
 }
 
@@ -1370,6 +1371,7 @@ ccid_usb_reset (void)
 void *
 ccid_thread (void *arg)
 {
+  extern uint32_t bDeviceState;
   chopstx_intr_t interrupt;
   uint32_t timeout;
 
@@ -1393,6 +1395,7 @@ ccid_thread (void *arg)
   apdu_init (a);
   ccid_init (c, epi, epo, a);
 
+  timeout = USB_ICC_TIMEOUT;
   icc_prepare_receive (c);
   while (1)
     {
@@ -1509,6 +1512,13 @@ ccid_thread (void *arg)
     {
       chopstx_join (c->application, NULL);
       c->application = 0;
+    }
+
+  /* Loading reGNUal.  */
+  while (bDeviceState != UNCONNECTED)
+    {
+      chopstx_poll (NULL, 1, &interrupt);
+      usb_interrupt_handler ();
     }
 
   return NULL;
