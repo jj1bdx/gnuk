@@ -1,9 +1,19 @@
+2016-05-20  NIIBE Yutaka  <gniibe@fsij.org>
+
+	* VERSION: 1.2.0.
+	* src/usb-ccid.c (ccid_thread): Fix timeout.
+	(icc_handle_timeout, icc_send_status): Tweak.
+
 2016-05-19  Niibe Yutaka  <gniibe@fsij.org>
 
-	* chopstx: Update to 0.11.
+	* src/usb_ctrl.c (usb_cb_ctrl_write_finish): Set bDeviceState.
 
-	* src/gnuk.h (LED_START_COMMAND, LED_FINISH_COMMAND): Change the
-	values for a case both flags will be handled.
+	* src/usb-ccid.c: Rename from usb-icc.c.
+	(ccid_thread): Handle reGNUal upgrade.
+
+	* src/Makefile.in (CSRC): Follow the change.
+
+	* chopstx: Update to 0.11.
 
 2016-05-18  Niibe Yutaka  <gniibe@fsij.org>
 
