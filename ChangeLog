@@ -1,4 +1,19 @@
+2016-06-01  Niibe Yutaka  <gniibe@fsij.org>
+
+	* tool/stlinkv2.py (stlinkv2.__init__): Don't
+	call setConfiguration.
+
+	* tool/gnuk_token.py (gnuk_token, regnual): Don't
+	call setAltInterface, it's not needed.
+
+	* src/usb-ccid.c (ccid_notify_slot_change): New.
+	(ccid_thread): Call ccid_notify_slot_change at
+	interface_reset and EV_CARD_CHANGE.
+
 2016-05-31  NIIBE Yutaka  <gniibe@fsij.org>
+
+	* src/usb_stm32f103.c, src/stm32f103.h: Remove.
+	* src/adc_stm32f103.c, src/sys.c: Remove.
 
 	* src/usb_ctrl.c (usb_cb_interface): call ccid_usb_reset.
 	(usb_cb_handle_event): Likewise.
