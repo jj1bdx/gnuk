@@ -1478,19 +1478,22 @@ usb_event_handle (struct usb_dev *dev)
       }
 }
 
+static void
+poll_event_intr (uint32_t *timeout, struct eventflag *ev, chopstx_intr_t *intr)
+{
+  chopstx_poll_cond_t poll_desc;
+
+  eventflag_prepare_poll (ev, &poll_desc);
+  chopstx_poll (timeout, 2, intr, &poll_desc);
+}
+
 void *
 ccid_thread (void *arg)
 {
   chopstx_intr_t interrupt;
   uint32_t timeout;
-  eventmask_t m;
-  chopstx_poll_cond_t poll_desc;
   struct usb_dev dev;
-
-  struct ep_in *epi = &endpoint_in;
-  struct ep_out *epo = &endpoint_out;
   struct ccid *c = &ccid;
-  struct apdu *a = &apdu;
 
   (void)arg;
 
@@ -1502,19 +1505,24 @@ ccid_thread (void *arg)
   usb_event_handle (&dev);	/* For old SYS < 3.0 */
 
  device_reset:
-  epi_init (epi, ENDP1, notify_tx, c);
-  epo_init (epo, ENDP1, notify_icc, c);
-  apdu_init (a);
-  ccid_init (c, epi, epo, a);
+  {
+    struct ep_in *epi = &endpoint_in;
+    struct ep_out *epo = &endpoint_out;
+    struct apdu *a = &apdu;
+
+    epi_init (epi, ENDP1, notify_tx, c);
+    epo_init (epo, ENDP1, notify_icc, c);
+    apdu_init (a);
+    ccid_init (c, epi, epo, a);
+  }
 
   while (bDeviceState != CONFIGURED)
     {
-      eventflag_prepare_poll (&c->ccid_comm, &poll_desc);
-      chopstx_poll (NULL, 2, &interrupt, &poll_desc);
+      poll_event_intr (NULL, &c->ccid_comm, &interrupt);
       if (interrupt.ready)
 	usb_event_handle (&dev);
 
-      m = eventflag_get (&c->ccid_comm);
+      eventflag_get (&c->ccid_comm);
       /* Ignore event while not-configured.  */
     }
 
@@ -1524,8 +1532,9 @@ ccid_thread (void *arg)
   ccid_notify_slot_change (c);
   while (1)
     {
-      eventflag_prepare_poll (&c->ccid_comm, &poll_desc);
-      chopstx_poll (&timeout, 2, &interrupt, &poll_desc);
+      eventmask_t m;
+
+      poll_event_intr (&timeout, &c->ccid_comm, &interrupt);
       if (interrupt.ready)
 	{
 	  usb_event_handle (&dev);
