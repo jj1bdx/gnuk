@@ -126,11 +126,7 @@ def compute_signature(keyno, digestinfo):
     return sig
 
 def integer_to_bytes_256(i):
-    s = hex(i)[2:]
-    s = s.rstrip('L')
-    if len(s) & 1:
-        s = '0' + s
-    return string.rjust(unhexlify(s), 256, '\x00')
+    return i.to_bytes(256, byteorder='big')
 
 def encrypt(keyno, plaintext):
     e = key[keyno][4]
