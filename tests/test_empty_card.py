@@ -24,6 +24,7 @@ from binascii import hexlify
 from re import match, DOTALL
 from struct import pack
 from util import *
+import pytest
 
 EMPTY_60=bytes(60)
 
@@ -58,13 +59,20 @@ def test_name_lang_sex(card):
     name_lang_sex = get_data_object(card, 0x65)
     assert name_lang_sex == b'' or name_lang_sex == expected
 
+def test_app_data(card):
+    app_data = get_data_object(card, 0x6e)
+    hist_len = app_data[20]
+    # FIXME: parse and check DO of C0, C1, C2, C3, C4, and C6
+    assert app_data[0:8] == b"\x4f\x10\xd2\x76\x00\x01\x24\x01" and \
+           app_data[18:18+2] == b"\x5f\x52"
+
 def test_url(card):
     url = get_data_object(card, 0x5f50)
     assert check_null(url)
 
 def test_ds_counter(card):
-    c = get_data_object(card, 0x93)
-    assert c == None or c == b'\x00\x00\x00'
+    c = get_data_object(card, 0x7a)
+    assert c == b'\x93\x03\x00\x00\x00'
 
 def test_pw1_status(card):
     s = get_data_object(card, 0xc4)
@@ -133,7 +141,8 @@ def test_verify_pw3(card):
 def test_historical_bytes(card):
     h = get_data_object(card, 0x5f52)
     assert h == b'\x001\xc5s\xc0\x01@\x05\x90\x00' or \
-           h == b'\x00\x31\x84\x73\x80\x01\x80\x00\x90\x00'
+           h == b'\x00\x31\x84\x73\x80\x01\x80\x00\x90\x00' or \
+           h == b'\x00\x31\x84\x73\x80\x01\x80\x05\x90\x00'
 
 def test_extended_capabilities(card):
     a = get_data_object(card, 0xc0)
@@ -150,6 +159,21 @@ def test_algorithm_attributes_2(card):
 def test_algorithm_attributes_3(card):
     a = get_data_object(card, 0xc3)
     assert a == None or a == b'\x01\x08\x00\x00\x20\x00'
+
+def test_public_key_1(card):
+    with pytest.raises(Exception) as excinfo:
+        pk = card.cmd_get_public_key(1)
+    assert excinfo.value.args[0] == "6a88"
+
+def test_public_key_2(card):
+    with pytest.raises(Exception) as excinfo:
+        pk = card.cmd_get_public_key(2)
+    assert excinfo.value.args[0] == "6a88"
+
+def test_public_key_3(card):
+    with pytest.raises(Exception) as excinfo:
+        pk = card.cmd_get_public_key(3)
+    assert excinfo.value.args[0] == "6a88"
 
 def test_AID(card):
     a = get_data_object(card, 0x4f)

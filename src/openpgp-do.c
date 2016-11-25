@@ -1,7 +1,7 @@
 /*
  * openpgp-do.c -- OpenPGP card Data Objects (DO) handling
  *
- * Copyright (C) 2010, 2011, 2012, 2013, 2014, 2015
+ * Copyright (C) 2010, 2011, 2012, 2013, 2014, 2015, 2016
  *               Free Software Initiative of Japan
  * Author: NIIBE Yutaka <gniibe@fsij.org>
  *
@@ -30,7 +30,7 @@
 
 #include "sys.h"
 #include "gnuk.h"
-#include "openpgp.h"
+#include "status-code.h"
 #include "random.h"
 #include "polarssl/config.h"
 #include "polarssl/aes.h"
@@ -90,11 +90,11 @@ uint16_t data_objects_number_of_bytes;
 
 /*
  * Compile time vars:
- *   Historical Bytes (template), Extended Capabilities.
+ *   Historical Bytes, Extended Capabilities.
  */
 
-/* Historical Bytes (template) */
-static const uint8_t historical_bytes[] __attribute__ ((aligned (1))) = {
+/* Historical Bytes */
+const uint8_t historical_bytes[] __attribute__ ((aligned (1))) = {
   10,
   0x00,
   0x31, 0x84,			/* Full DF name, GET DATA, MF */
@@ -102,7 +102,12 @@ static const uint8_t historical_bytes[] __attribute__ ((aligned (1))) = {
   0x80, 0x01, 0x80,		/* Full DF name */
 				/* 1-byte */
 				/* Command chaining, No extended Lc and Le */
-  0x00, 0x90, 0x00		/* Status info (no life cycle management) */
+#ifdef LIFE_CYCLE_MANAGEMENT_SUPPORT
+  0x05,
+#else
+  0x00,
+#endif
+  0x90, 0x00			/* Status info */
 };
 
 /* Extended Capabilities */
@@ -485,23 +490,6 @@ copy_tag (uint16_t tag)
     }
 }
 
-static int
-do_hist_bytes (uint16_t tag, int with_tag)
-{
-  /*
-   * Currently, we support no life cycle management.  In case of Gnuk,
-   * user could flash the MCU with SWD/JTAG, instead.  It is also
-   * possible for user to do firmware upgrade through USB.
-   *
-   * Thus, here, it just returns the template as is.
-   *
-   * In future (when Gnuk will be on the real smartcard),
-   * we can support life cycle management by implementing
-   * TERMINATE DF / ACTIVATE FILE and fix code around here.
-   */
-  copy_do_1 (tag, historical_bytes, with_tag);
-  return 1;
-}
 
 #define SIZE_FP 20
 #define SIZE_KGTIME 4
@@ -763,6 +751,22 @@ rw_algorithm_attr (uint16_t tag, int with_tag,
 	{
 	  gpg_do_delete_prvkey (kk, CLEAN_PAGE_FULL);
 	  flash_enum_clear (algo_attr_pp);
+	  if (kk == GPG_KEY_FOR_SIGNING)
+	    {
+	      gpg_reset_digital_signature_counter ();
+	      gpg_do_write_simple (NR_DO_FP_SIG, NULL, 0);
+	      gpg_do_write_simple (NR_DO_KGTIME_SIG, NULL, 0);
+	    }
+	  else if (kk == GPG_KEY_FOR_DECRYPTION)
+	    {
+	      gpg_do_write_simple (NR_DO_FP_DEC, NULL, 0);
+	      gpg_do_write_simple (NR_DO_KGTIME_DEC, NULL, 0);
+	    }
+	  else
+	    {
+	      gpg_do_write_simple (NR_DO_FP_AUT, NULL, 0);
+	      gpg_do_write_simple (NR_DO_KGTIME_AUT, NULL, 0);
+	    }
 	  if (*algo_attr_pp != NULL)
 	    return 0;
 	}
@@ -770,6 +774,22 @@ rw_algorithm_attr (uint16_t tag, int with_tag,
 	       || (*algo_attr_pp)[1] != algo)
 	{
 	  gpg_do_delete_prvkey (kk, CLEAN_PAGE_FULL);
+	  if (kk == GPG_KEY_FOR_SIGNING)
+	    {
+	      gpg_reset_digital_signature_counter ();
+	      gpg_do_write_simple (NR_DO_FP_SIG, NULL, 0);
+	      gpg_do_write_simple (NR_DO_KGTIME_SIG, NULL, 0);
+	    }
+	  else if (kk == GPG_KEY_FOR_DECRYPTION)
+	    {
+	      gpg_do_write_simple (NR_DO_FP_DEC, NULL, 0);
+	      gpg_do_write_simple (NR_DO_KGTIME_DEC, NULL, 0);
+	    }
+	  else
+	    {
+	      gpg_do_write_simple (NR_DO_FP_AUT, NULL, 0);
+	      gpg_do_write_simple (NR_DO_KGTIME_AUT, NULL, 0);
+	    }
 	  *algo_attr_pp = flash_enum_write (kk_to_nr (kk), algo);
 	  if (*algo_attr_pp == NULL)
 	    return 0;
@@ -1040,6 +1060,28 @@ gpg_do_delete_prvkey (enum kind_of_key kk, int clean_page_full)
       if (admin_authorized == BY_USER)
 	ac_reset_admin ();
     }
+}
+
+void
+gpg_do_terminate (void)
+{
+  int i;
+
+  for (i = 0; i < 3; i++)
+    kd[i].pubkey = NULL;
+
+  for (i = 0; i < NR_DO__LAST__; i++)
+    do_ptr[i] = NULL;
+
+  num_prv_keys = 0;
+  data_objects_number_of_bytes = 0;
+  digital_signature_counter = 0;
+
+  pw1_lifetime_p = NULL;
+  pw_err_counter_p[PW_ERR_PW1] = NULL;
+  pw_err_counter_p[PW_ERR_RC] = NULL;
+  pw_err_counter_p[PW_ERR_PW3] = NULL;
+  algo_attr_sig_p = algo_attr_dec_p = algo_attr_aut_p = NULL;
 }
 
 static int
@@ -1459,7 +1501,6 @@ gpg_do_table[] = {
   { GPG_DO_NAME, DO_VAR, AC_ALWAYS, AC_ADMIN_AUTHORIZED, &do_ptr[12] },
   { GPG_DO_LANGUAGE, DO_VAR, AC_ALWAYS, AC_ADMIN_AUTHORIZED, &do_ptr[13] },
   /* Pseudo DO READ: calculated */
-  { GPG_DO_HIST_BYTES, DO_PROC_READ, AC_ALWAYS, AC_NEVER, do_hist_bytes },
   { GPG_DO_FP_ALL, DO_PROC_READ, AC_ALWAYS, AC_NEVER, do_fp_all },
   { GPG_DO_CAFP_ALL, DO_PROC_READ, AC_ALWAYS, AC_NEVER, do_cafp_all },
   { GPG_DO_KGTIME_ALL, DO_PROC_READ, AC_ALWAYS, AC_NEVER, do_kgtime_all },
@@ -1476,6 +1517,7 @@ gpg_do_table[] = {
   { GPG_DO_ALG_AUT, DO_PROC_READWRITE, AC_ALWAYS, AC_ADMIN_AUTHORIZED,
     rw_algorithm_attr },
   /* Fixed data */
+  { GPG_DO_HIST_BYTES, DO_FIXED, AC_ALWAYS, AC_NEVER, historical_bytes },
   { GPG_DO_EXTCAP, DO_FIXED, AC_ALWAYS, AC_NEVER, extended_capabilities },
   /* Compound data: Read access only */
   { GPG_DO_CH_DATA, DO_CMP_READ, AC_ALWAYS, AC_NEVER, cmp_ch_data },
@@ -1517,7 +1559,7 @@ gpg_data_scan (const uint8_t *p_start)
 
   /* Traverse DO, counters, etc. in DATA pool */
   p = p_start;
-  while (*p != NR_EMPTY)
+  while (p && *p != NR_EMPTY)
     {
       uint8_t nr = *p++;
       uint8_t second_byte = *p;

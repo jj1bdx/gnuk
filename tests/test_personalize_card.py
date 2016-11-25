@@ -136,6 +136,33 @@ def test_timestamp_3_put(card):
     r = card.cmd_put_data(0x00, 0xd0, timestamp3)
     assert r
 
+def test_ds_counter_0(card):
+    c = get_data_object(card, 0x7a)
+    assert c == b'\x93\x03\x00\x00\x00'
+
+def test_pw1_status(card):
+    s = get_data_object(card, 0xc4)
+    assert match(b'\x01...\x03[\x00\x03]\x03', s, DOTALL)
+
+def test_app_data(card):
+    app_data = get_data_object(card, 0x6e)
+    hist_len = app_data[20]
+    # FIXME: parse and check DO of C0, C1, C2, C3, C4, and C6
+    assert app_data[0:8] == b"\x4f\x10\xd2\x76\x00\x01\x24\x01" and \
+           app_data[18:18+2] == b"\x5f\x52"
+
+def test_public_key_1(card):
+    pk = card.cmd_get_public_key(1)
+    assert rsa_keys.key[0][0] == pk[9:9+256]
+
+def test_public_key_2(card):
+    pk = card.cmd_get_public_key(2)
+    assert rsa_keys.key[1][0] == pk[9:9+256]
+
+def test_public_key_3(card):
+    pk = card.cmd_get_public_key(3)
+    assert rsa_keys.key[2][0] == pk[9:9+256]
+
 def test_setup_pw1_0(card):
     r = card.cmd_change_reference_data(1, FACTORY_PASSPHRASE_PW1 + PW1_TEST0)
     assert r
@@ -233,6 +260,10 @@ def test_sign_1(card):
     sig = rsa_keys.compute_signature(0, digestinfo)
     sig_bytes = sig.to_bytes(int((sig.bit_length()+7)/8), byteorder='big')
     assert r == sig_bytes
+
+def test_ds_counter_1(card):
+    c = get_data_object(card, 0x7a)
+    assert c == b'\x93\x03\x00\x00\x02'
 
 def test_sign_auth_0(card):
     digestinfo = rsa_keys.compute_digestinfo(PLAIN_TEXT0)

@@ -1,3 +1,58 @@
+2016-10-21  Niibe Yutaka  <gniibe@fsij.org>
+
+	* src/ecc.c (check_secret): Fix condition.
+
+2016-10-15  NIIBE Yutaka  <gniibe@fsij.org>
+
+	* VERSION: 1.2.2.
+
+	* tool/gnuk_put_binary_libusb.py (main): Likewise.
+	* tool/upgrade_by_passwd.py (main): Add call of cmd_select_openpgp
+	method.
+
+	* src/openpgp.c (gpg_init): flash_init_keys shoule be after
+	gpg_data_scan since flash_init_keys accesses Data Object for
+	key attributes.
+
+	* src/usb-ccid.c (ccid_power_on): Don't waste stack.
+
+2016-10-14  Niibe Yutaka  <gniibe@fsij.org>
+
+	* src/usb-ccid.c (ccid_power_on) [LIFE_CYCLE_MANAGEMENT_SUPPORT]:
+	Change LCS value in ATR at run time.
+
+	* src/openpgp.c (gpg_init): Handle FILE_CARD_TERMINATED.
+	(cmd_select_file): Don't return AID.
+	(cmd_activate_file, cmd_terminate_df): New.
+	(process_command_apdu): Let return GPG_NO_RECORD() when
+	not selected.
+
+	* src/openpgp-do.c (gpg_do_terminate): New.
+	(gpg_data_scan): Handle p_start is NULL.
+	(do_hist_bytes): Remove.
+
+	* src/flash.c (flash_data): Change the value from 0x0000.
+	(flash_init): Support termination state.  Fix handling
+	of the boundary case where gen0 is 0xfffe.
+	(flash_terminate, flash_activate): New.
+	(flash_copying_gc): Skip 0xffff for generation number.
+
+2016-10-13  Niibe Yutaka  <gniibe@fsij.org>
+
+	* src/status-code.h: Rename from openpgp.h.
+
+	* chopstx: Update to 1.2.
+
+	* tests: New test suite for OpenPGP card with PyTest.
+
+	* src/configure (factory_reset): New.
+
+	* src/usb-ccid.c (ccid_power_on): Use ATR_head and historical
+	bytes.
+
+	* src/openpgp-do.c (rw_algorithm_attr): Clear fingerprint, timestamp,
+	and possibly ds_counter.
+
 2016-10-12  Niibe Yutaka  <gniibe@fsij.org>
 
 	* test/features/steps.py (cmd_reset_retry_counter): Fix.

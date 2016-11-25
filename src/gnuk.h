@@ -100,12 +100,15 @@ void ac_fini (void);
 
 
 void set_res_sw (uint8_t sw1, uint8_t sw2);
+extern uint8_t file_selection;
+extern const uint8_t historical_bytes[];
 extern uint16_t data_objects_number_of_bytes;
 
 #define CHALLENGE_LEN	32
 
 void gpg_data_scan (const uint8_t *p);
 void gpg_data_copy (const uint8_t *p);
+void gpg_do_terminate (void);
 void gpg_do_get_data (uint16_t tag, int with_tag);
 void gpg_do_put_data (uint16_t tag, const uint8_t *data, int len);
 void gpg_do_public_key (uint8_t kk_byte);
@@ -137,6 +140,8 @@ int gpg_get_algo_attr (enum kind_of_key kk);
 int gpg_get_algo_attr_key_size (enum kind_of_key kk, enum size_of_key s);
 
 const uint8_t *flash_init (void);
+void flash_terminate (void);
+void flash_activate (void);
 void flash_init_keys (void);
 void flash_do_release (const uint8_t *);
 const uint8_t *flash_do_write (uint8_t nr, const uint8_t *data, int len);
