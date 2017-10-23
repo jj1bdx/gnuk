@@ -69,8 +69,9 @@ def main(wait_e, keyno, passwd, data_regnual, data_upgrade):
     gnuk = None
     #
     reg = None
+    print("Waiting for device to appear:")
     while reg == None:
-        print("Wait %d seconds..." % wait_e)
+        print("  Wait %d seconds..." % wait_e)
         time.sleep(wait_e)
         for dev in gnuk_devices_by_vidpid():
             try:
@@ -84,9 +85,13 @@ def main(wait_e, keyno, passwd, data_regnual, data_upgrade):
     print("%08x:%08x" % mem_info)
     print("Downloading the program")
     reg.download(mem_info[0], data_upgrade)
+    print("Protecting device")
     reg.protect()
+    print("Finish flashing")
     reg.finish()
+    print("Resetting device")
     reg.reset_device()
+    print("Update procedure finished")
     return 0
 
 from getpass import getpass
@@ -119,6 +124,9 @@ if __name__ == '__main__':
         passwd = getpass("Admin password: ")
     filename_regnual = sys.argv[1]
     filename_upgrade = sys.argv[2]
+    if not filename_regnual.endswith('bin') or not filename_upgrade.endswith('bin'):
+        print("Both input files must be in binary format (*.bin)!")
+        exit(1)
     f = open(filename_regnual,"rb")
     data_regnual = f.read()
     f.close()

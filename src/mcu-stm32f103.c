@@ -1,8 +1,8 @@
 /*
- * call-ec_p256r1.c - interface between Gnuk and Elliptic curve over
- *                    GF(p256r1)
+ * mcu-stm32f103.c - STM32F103 specific routines
  *
- * Copyright (C) 2014, 2017  Free Software Initiative of Japan
+ * Copyright (C) 2017
+ *               Free Software Initiative of Japan
  * Author: NIIBE Yutaka <gniibe@fsij.org>
  *
  * This file is a part of Gnuk, a GnuPG USB Token implementation.
@@ -23,12 +23,10 @@
  */
 
 #include <stdint.h>
-#include <string.h>
-#include "bn.h"
-#include "affine.h"
-#include "jpc-ac_p256r1.h"
-#include "ec_p256r1.h"
+#include "mcu/stm32f103.h"
 
-#define FIELD p256r1
-
-#include "call-ec.c"
+uint8_t *
+sram_address (uint32_t offset)
+{
+  return ((uint8_t *)0x20000000) + offset;
+}
